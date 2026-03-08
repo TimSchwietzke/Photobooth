@@ -69,6 +69,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     flashEl.classList.add('flash-active');
                     setTimeout(() => flashEl.classList.remove('flash-active'), 400);
 
+                    // --- MOBILE FIX START ---
+                    // 1. Erstelle einen unsichtbaren Hilfs-Canvas in Videogröße
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = videoWidth;
+                    tempCanvas.height = videoHeight;
+                    const tempCtx = tempCanvas.getContext('2d');
+
+                    // 2. Zeichne das rohe Video ohne Filter auf den Hilfs-Canvas
+                    tempCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
+
+                    // --- BERECHNUNG FÜR DEN ZUSCHNITT ---
                     const p = 40;
                     const targetWidth = canvas.width - (p * 2);
                     const targetHeight = (canvas.height - (p * 5)) / 4;
@@ -92,21 +103,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         sourceY = (videoHeight - sourceHeight) / 2;
                     }
 
-                    // --- CANVAS ZEICHNEN ---
+                    // 3. Jetzt auf den Haupt-Canvas zeichnen
                     ctx.save();
 
-                    // 1. Filter setzen
+                    // Filter VOR dem Zeichnen setzen
                     ctx.filter = currentFilter;
 
                     if (isMirrored) {
                         ctx.translate(x + targetWidth, y);
                         ctx.scale(-1, 1);
-                        ctx.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
+                        // WICHTIG: Wir zeichnen hier den tempCanvas, NICHT das Video!
+                        ctx.drawImage(tempCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
                     } else {
-                        ctx.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, x, y, targetWidth, targetHeight);
+                        ctx.drawImage(tempCanvas, sourceX, sourceY, sourceWidth, sourceHeight, x, y, targetWidth, targetHeight);
                     }
 
                     ctx.restore();
+                    // Hilfs-Canvas löschen für Speicherplatz
+                    tempCanvas.remove();
+
                     resolve();
                 } else {
                     countdownEl.innerText = timer;
