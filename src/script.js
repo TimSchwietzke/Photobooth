@@ -19,12 +19,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dateEl.innerText = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' });
 
+    // Filter Auswahl
     filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             filterBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            currentFilter = btn.getAttribute('data-filter');
+
+            // Wert aus dem data-filter Attribut holen
+            currentFilter = btn.getAttribute('data-filter') || "none";
+
+            // Auf Video-Vorschau anwenden (CSS)
             video.style.filter = currentFilter === "none" ? "" : currentFilter;
+            console.log("Aktiver Filter:", currentFilter);
         });
     });
 
@@ -86,7 +92,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         sourceY = (videoHeight - sourceHeight) / 2;
                     }
 
+                    // --- CANVAS ZEICHNEN ---
                     ctx.save();
+
+                    // 1. Filter setzen
                     ctx.filter = currentFilter;
 
                     if (isMirrored) {
@@ -108,27 +117,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     startBtn.addEventListener('click', async () => {
         startBtn.disabled = true;
-        startBtn.innerText = "Lächeln :D";
         resultArea.classList.add('hidden');
 
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         for (let i = 0; i < 4; i++) {
-            statusEl.innerText = `Bild ${i + 1} :`;
+            statusEl.innerText = `Bild ${i + 1} ...`;
             await takePhoto(i);
         }
 
-        statusEl.innerText = "Die Bilder werden heruntergeladen...";
+        statusEl.innerText = "Deine Bilder kommen ...";
         setTimeout(() => {
             const data = canvas.toDataURL('image/png');
             finalImage.src = data;
             downloadBtn.href = data;
             downloadBtn.download = `booth-strip-${Date.now()}.png`;
             resultArea.classList.remove('hidden');
-            statusEl.innerText = "Dein Foto ist unten/ rechts!";
+            statusEl.innerText = "Deine Bilder sind unten/ rechts!";
             startBtn.disabled = false;
-            startBtn.innerText = "Leg los!";
         }, 1000);
     });
 
