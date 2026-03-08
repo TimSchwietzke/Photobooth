@@ -1,0 +1,28 @@
+# Abhängigkeiten
+node_modules/
+.pnp
+.pnp.js
+
+# PHPStorm / JetBrains
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Betriebssystem-Dateien
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Falls du die Standalone-EXE geladen hast
+tailwind.exe
+
+# Build-Dateien (WICHTIGER HINWEIS UNTEN LESEN)
+# dist/
