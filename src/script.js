@@ -69,22 +69,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     flashEl.classList.add('flash-active');
                     setTimeout(() => flashEl.classList.remove('flash-active'), 400);
 
-                    // --- MOBILE FIX START ---
-                    // 1. Erstelle einen unsichtbaren Hilfs-Canvas in Videogröße
+                    // --- 1. FILTER-STRING CLEANUP ---
+                    // Handys mögen Zahlen (1) lieber als Prozente (100%)
+                    let cleanFilter = currentFilter.replace('100%', '1');
+                    if (!cleanFilter || cleanFilter === "") cleanFilter = "none";
+
+                    // --- 2. TEMPORÄRER CANVAS (DER "ERZWINGER") ---
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = videoWidth;
                     tempCanvas.height = videoHeight;
                     const tempCtx = tempCanvas.getContext('2d');
 
-                    // 2. Zeichne das rohe Video ohne Filter auf den Hilfs-Canvas
+                    // WICHTIG: Filter auf den temporären Canvas anwenden, BEVOR das Video gezeichnet wird
+                    tempCtx.filter = cleanFilter;
                     tempCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
 
-                    // --- BERECHNUNG FÜR DEN ZUSCHNITT ---
+                    // --- 3. BERECHNUNG DER KOORDINATEN ---
                     const p = 40;
                     const targetWidth = canvas.width - (p * 2);
                     const targetHeight = (canvas.height - (p * 5)) / 4;
-                    const x = p;
-                    const y = p + (index * (targetHeight + p));
+                    const $x = p$;
+                    const $y = p + (index * (targetHeight + p))$;
 
                     const videoAspectRatio = videoWidth / videoHeight;
                     const targetAspectRatio = targetWidth / targetHeight;
@@ -92,8 +97,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     let sourceX, sourceY, sourceWidth, sourceHeight;
 
                     if (videoAspectRatio > targetAspectRatio) {
-                        sourceHeight = videoHeight;
                         sourceWidth = videoHeight * targetAspectRatio;
+                        sourceHeight = videoHeight;
                         sourceX = (videoWidth - sourceWidth) / 2;
                         sourceY = 0;
                     } else {
@@ -103,25 +108,26 @@ document.addEventListener('DOMContentLoaded', () => {
                         sourceY = (videoHeight - sourceHeight) / 2;
                     }
 
-                    // 3. Jetzt auf den Haupt-Canvas zeichnen
+                    // --- 4. AUF DEN HAUPT-CANVAS ÜBERTRAGEN ---
                     ctx.save();
 
-                    // Filter VOR dem Zeichnen setzen
-                    ctx.filter = currentFilter;
+                    // Wir zeichnen das bereits gefilterte Bild vom tempCanvas
+                    // Zur Sicherheit setzen wir den Filter hier nochmal auf "none",
+                    // damit keine doppelten Filter entstehen.
+                    ctx.filter = "none";
 
                     if (isMirrored) {
-                        ctx.translate(x + targetWidth, y);
+                        ctx.translate($x + targetWidth$, $y$);
                         ctx.scale(-1, 1);
-                        // WICHTIG: Wir zeichnen hier den tempCanvas, NICHT das Video!
                         ctx.drawImage(tempCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
                     } else {
-                        ctx.drawImage(tempCanvas, sourceX, sourceY, sourceWidth, sourceHeight, x, y, targetWidth, targetHeight);
+                        ctx.drawImage(tempCanvas, sourceX, sourceY, sourceWidth, sourceHeight, $x$, $y$, targetWidth, targetHeight);
                     }
 
                     ctx.restore();
-                    // Hilfs-Canvas löschen für Speicherplatz
-                    tempCanvas.remove();
 
+                    // Speicher freigeben
+                    tempCanvas.remove();
                     resolve();
                 } else {
                     countdownEl.innerText = timer;
