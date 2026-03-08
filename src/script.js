@@ -14,23 +14,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const filterBtns = document.querySelectorAll('.filter-btn');
 
     let isMirrored = true;
-    let videoWidth = 0;
-    let videoHeight = 0;
+    let videoWidth, videoHeight;
     let currentFilter = "none";
 
-    // Datum setzen
     dateEl.innerText = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' });
 
-    // Filter Auswahl
     filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             filterBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-
-            let filterValue = btn.getAttribute('data-filter') || "none";
-            // Handy-Safe: 100% zu 1 konvertieren
-            currentFilter = filterValue.replace('100%', '1');
-
+            currentFilter = btn.getAttribute('data-filter') || "none";
             video.style.filter = currentFilter === "none" ? "" : currentFilter;
         });
     });
@@ -40,28 +33,113 @@ document.addEventListener('DOMContentLoaded', () => {
         video.classList.toggle('mirrored', isMirrored);
     });
 
-    // Kamera-Metadaten abgreifen
     video.addEventListener('loadedmetadata', () => {
         videoWidth = video.videoWidth;
         videoHeight = video.videoHeight;
-        console.log("Kamera bereit:", videoWidth, "x", videoHeight);
     });
 
-    async function init() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    facingMode: "user"
-                },
-                audio: false
-            });
-            video.srcObject = stream;
-        } catch (err) {
-            statusEl.innerText = "Kamera-Zugriff verweigert oder nicht gefunden.";
-            console.error("Kamera-Fehler:", err);
+    function cssFilterToSVGDefs(filter) {
+        if (filter.includes('grayscale')) {
+            return `<filter id="f"><feColorMatrix type="saturate" values="0"/></filter>`;
         }
+        if (filter.includes('sepia')) {
+            return `<filter id="f">
+                <feColorMatrix type="matrix" values="
+                    0.393 0.769 0.189 0 0
+                    0.349 0.686 0.168 0 0
+                    0.272 0.534 0.131 0 0
+                    0     0     0     1 0"/>
+                <feComponentTransfer>
+                    <feFuncR type="linear" slope="1.1"/>
+                    <feFuncG type="linear" slope="1.1"/>
+                    <feFuncB type="linear" slope="1.1"/>
+                </feComponentTransfer>
+            </filter>`;
+        }
+        if (filter.includes('saturate')) {
+            return `<filter id="f">
+                <feComponentTransfer>
+                    <feFuncR type="linear" slope="1.2" intercept="-0.1"/>
+                    <feFuncG type="linear" slope="1.2" intercept="-0.1"/>
+                    <feFuncB type="linear" slope="1.2" intercept="-0.1"/>
+                </feComponentTransfer>
+                <feColorMatrix type="saturate" values="1.3"/>
+                <feComponentTransfer>
+                    <feFuncR type="linear" slope="1.1"/>
+                    <feFuncG type="linear" slope="1.1"/>
+                    <feFuncB type="linear" slope="1.1"/>
+                </feComponentTransfer>
+            </filter>`;
+        }
+        return `<filter id="f"></filter>`;
+    }
+
+    function drawFrameWithFilter(sourceX, sourceY, sourceWidth, sourceHeight, destX, destY, destWidth, destHeight) {
+        return new Promise((resolve) => {
+
+            // Schritt 1: Video-Frame (+ Spiegelung) in Zwischen-Canvas
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = destWidth;
+            tmpCanvas.height = destHeight;
+            const tmpCtx = tmpCanvas.getContext('2d');
+
+            if (isMirrored) {
+                tmpCtx.translate(destWidth, 0);
+                tmpCtx.scale(-1, 1);
+            }
+            tmpCtx.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, destWidth, destHeight);
+
+            if (!currentFilter || currentFilter === "none") {
+                ctx.drawImage(tmpCanvas, destX, destY);
+                resolve();
+                return;
+            }
+
+            // Schritt 2: ctx.filter versuchen und per Pixel-Vergleich prüfen
+            const testCanvas = document.createElement('canvas');
+            testCanvas.width = destWidth;
+            testCanvas.height = destHeight;
+            const testCtx = testCanvas.getContext('2d');
+            testCtx.filter = currentFilter;
+            testCtx.drawImage(tmpCanvas, 0, 0);
+            testCtx.filter = 'none';
+
+            const cx = Math.floor(destWidth / 2);
+            const cy = Math.floor(destHeight / 2);
+            const orig = tmpCtx.getImageData(cx, cy, 1, 1).data;
+            const filtered = testCtx.getImageData(cx, cy, 1, 1).data;
+            const filterWorked = orig[0] !== filtered[0] || orig[1] !== filtered[1] || orig[2] !== filtered[2];
+
+            if (filterWorked) {
+                ctx.drawImage(testCanvas, destX, destY);
+                resolve();
+                return;
+            }
+
+            // Schritt 3: SVG-Filter Fallback (Mobile)
+            const dataURL = tmpCanvas.toDataURL('image/png');
+            const svgDefs = cssFilterToSVGDefs(currentFilter);
+            const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${destWidth}" height="${destHeight}">
+                <defs>${svgDefs}</defs>
+                <image href="${dataURL}" width="${destWidth}" height="${destHeight}" filter="url(#f)"/>
+            </svg>`;
+
+            const blob = new Blob([svgString], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+
+            img.onload = () => {
+                ctx.drawImage(img, destX, destY);
+                URL.revokeObjectURL(url);
+                resolve();
+            };
+            img.onerror = () => {
+                ctx.drawImage(tmpCanvas, destX, destY);
+                URL.revokeObjectURL(url);
+                resolve();
+            };
+            img.src = url;
+        });
     }
 
     async function takePhoto(index) {
@@ -70,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
             countdownEl.innerText = timer;
             countdownEl.classList.remove('hidden');
 
-            const interval = setInterval(() => {
+            const interval = setInterval(async () => {
                 timer--;
                 if (timer === 0) {
                     clearInterval(interval);
@@ -78,18 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     flashEl.classList.add('flash-active');
                     setTimeout(() => flashEl.classList.remove('flash-active'), 400);
 
-                    // --- MOBILE FILTER FIX ---
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = videoWidth;
-                    tempCanvas.height = videoHeight;
-                    const tempCtx = tempCanvas.getContext('2d');
-
-                    // Filter auf den Zwischen-Canvas anwenden
-                    tempCtx.filter = currentFilter;
-                    tempCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
-
-                    // --- POSITIONIERUNG AUF DEM STREIFEN ---
-                    const p = 40; // Padding
+                    const p = 40;
                     const targetWidth = canvas.width - (p * 2);
                     const targetHeight = (canvas.height - (p * 5)) / 4;
                     const x = p;
@@ -98,33 +165,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     const videoAspectRatio = videoWidth / videoHeight;
                     const targetAspectRatio = targetWidth / targetHeight;
 
-                    let sX, sY, sW, sH;
+                    let sourceX, sourceY, sourceWidth, sourceHeight;
 
                     if (videoAspectRatio > targetAspectRatio) {
-                        sW = videoHeight * targetAspectRatio;
-                        sH = videoHeight;
-                        sX = (videoWidth - sW) / 2;
-                        sY = 0;
+                        sourceHeight = videoHeight;
+                        sourceWidth = videoHeight * targetAspectRatio;
+                        sourceX = (videoWidth - sourceWidth) / 2;
+                        sourceY = 0;
                     } else {
-                        sW = videoWidth;
-                        sH = videoWidth / targetAspectRatio;
-                        sX = 0;
-                        sY = (videoHeight - sH) / 2;
+                        sourceWidth = videoWidth;
+                        sourceHeight = videoWidth / targetAspectRatio;
+                        sourceX = 0;
+                        sourceY = (videoHeight - sourceHeight) / 2;
                     }
 
-                    ctx.save();
-                    ctx.filter = "none"; // Wichtig: Nicht doppelt filtern
-
-                    if (isMirrored) {
-                        ctx.translate(x + targetWidth, y);
-                        ctx.scale(-1, 1);
-                        ctx.drawImage(tempCanvas, sX, sY, sW, sH, 0, 0, targetWidth, targetHeight);
-                    } else {
-                        ctx.drawImage(tempCanvas, sX, sY, sW, sH, x, y, targetWidth, targetHeight);
-                    }
-
-                    ctx.restore();
-                    tempCanvas.remove();
+                    await drawFrameWithFilter(sourceX, sourceY, sourceWidth, sourceHeight, x, y, targetWidth, targetHeight);
                     resolve();
                 } else {
                     countdownEl.innerText = timer;
@@ -134,35 +189,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     startBtn.addEventListener('click', async () => {
-        if (videoWidth === 0) {
-            statusEl.innerText = "Kamera lädt noch...";
-            return;
-        }
-
         startBtn.disabled = true;
-        startBtn.innerText = "Shooting...";
         resultArea.classList.add('hidden');
 
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         for (let i = 0; i < 4; i++) {
-            statusEl.innerText = `Pose ${i + 1} kommt gleich...`;
+            statusEl.innerText = `Bild ${i + 1} ...`;
             await takePhoto(i);
         }
 
-        statusEl.innerText = "Streifen wird generiert...";
+        statusEl.innerText = "Deine Bilder kommen ...";
         setTimeout(() => {
             const data = canvas.toDataURL('image/png');
             finalImage.src = data;
             downloadBtn.href = data;
-            downloadBtn.download = `photostrip-${Date.now()}.png`;
+            downloadBtn.download = `booth-strip-${Date.now()}.png`;
             resultArea.classList.remove('hidden');
-            statusEl.innerText = "Nimm dein Foto unten aus dem Schlitz!";
+            statusEl.innerText = "Deine Bilder sind unten/ rechts!";
             startBtn.disabled = false;
-            startBtn.innerText = "Start Shooting";
         }, 1000);
     });
+
+    async function init() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            statusEl.innerText = "Error: No Camera Found";
+        }
+    }
 
     init();
 });
